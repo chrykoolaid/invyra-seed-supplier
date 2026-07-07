@@ -63,6 +63,7 @@ class SupplierAction(StrEnum):
 class GovernanceEventType(StrEnum):
     SUPPLIER_STAGED = "supplier_staged"
     LIFECYCLE_CHANGED = "lifecycle_changed"
+    GOVERNANCE_ACTION_BLOCKED = "governance_action_blocked"
     PROVENANCE_SEEDED_CAPTURED = "provenance_seeded_captured"
     PROVENANCE_MANUAL_RECORDED = "provenance_manual_recorded"
     LEGAL_ACCEPTED = "legal_accepted"
