@@ -58,6 +58,21 @@ class SupplierSeedEngine:
         result = self.moderation_service.escalate(supplier, actor=actor, reason=reason, context=context, policy_engine=self.policy_engine)
         return self._apply_result("escalate_moderation", supplier_id, result)
 
+    def accept_legal(self, supplier_id, version, actor=None, context=None):
+        supplier = self.repository.get(supplier_id)
+        result = self.legal_service.accept(supplier, version=version, actor=actor, context=context, policy_engine=self.policy_engine)
+        return self._apply_result("accept_legal", supplier_id, result)
+
+    def withdraw_legal(self, supplier_id, actor=None, reason="", context=None):
+        supplier = self.repository.get(supplier_id)
+        result = self.legal_service.withdraw(supplier, actor=actor, reason=reason, context=context, policy_engine=self.policy_engine)
+        return self._apply_result("withdraw_legal", supplier_id, result)
+
+    def supersede_legal(self, supplier_id, pending_version, actor=None, reason="", context=None):
+        supplier = self.repository.get(supplier_id)
+        result = self.legal_service.supersede(supplier, pending_version=pending_version, actor=actor, reason=reason, context=context, policy_engine=self.policy_engine)
+        return self._apply_result("supersede_legal", supplier_id, result)
+
     def list_suppliers(self):
         return self.repository.list()
 
