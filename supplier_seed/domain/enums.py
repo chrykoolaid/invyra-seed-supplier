@@ -28,6 +28,7 @@ class LegalAcceptanceState(StrEnum):
     NOT_ACCEPTED = "not_accepted"
     ACCEPTED = "accepted"
     WITHDRAWN = "withdrawn"
+    SUPERSEDED = "superseded"
 
 class VerificationStatus(StrEnum):
     NOT_VERIFIED = "not_verified"
@@ -68,6 +69,7 @@ class GovernanceEventType(StrEnum):
     PROVENANCE_MANUAL_RECORDED = "provenance_manual_recorded"
     LEGAL_ACCEPTED = "legal_accepted"
     LEGAL_WITHDRAWN = "legal_withdrawn"
+    LEGAL_SUPERSEDED = "legal_superseded"
     VERIFICATION_VERIFIED = "verification_verified"
     VERIFICATION_FAILED = "verification_failed"
     MODERATION_SUBMITTED = "moderation_submitted"
