@@ -35,11 +35,14 @@ class VerificationStatus(StrEnum):
     PENDING = "pending"
     VERIFIED = "verified"
     FAILED = "failed"
+    NEEDS_REVIEW = "needs_review"
 
 class VerificationVisibility(StrEnum):
     INTERNAL = "internal"
     PUBLIC = "public"
     HIDDEN = "hidden"
+    VISIBLE = "visible"
+    INTERNAL_ONLY = "internal_only"
 
 class ValidationSeverity(StrEnum):
     INFO = "info"
@@ -70,8 +73,11 @@ class GovernanceEventType(StrEnum):
     LEGAL_ACCEPTED = "legal_accepted"
     LEGAL_WITHDRAWN = "legal_withdrawn"
     LEGAL_SUPERSEDED = "legal_superseded"
+    VERIFICATION_ASSIGNED = "verification_assigned"
     VERIFICATION_VERIFIED = "verification_verified"
     VERIFICATION_FAILED = "verification_failed"
+    VERIFICATION_NEEDS_REVIEW = "verification_needs_review"
+    VERIFICATION_VISIBILITY_CHANGED = "verification_visibility_changed"
     MODERATION_SUBMITTED = "moderation_submitted"
     MODERATION_APPROVED = "moderation_approved"
     MODERATION_REJECTED = "moderation_rejected"
