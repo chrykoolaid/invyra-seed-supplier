@@ -12,6 +12,9 @@ class PolicyContext:
     require_region_for_supplier: bool = False
     require_legal_acceptance_for_manual: bool = True
     require_moderation_for_seeded_activation: bool = True
+    require_actor_for_moderation_actions: bool = False
+    require_reason_for_moderation_rejection: bool = False
+    require_reason_for_moderation_escalation: bool = False
 
 @dataclass(frozen=True)
 class PolicyDecision:
