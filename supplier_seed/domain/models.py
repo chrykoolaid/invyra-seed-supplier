@@ -32,7 +32,7 @@ class SupplierRecord:
     moderation_status: ModerationStatus = ModerationStatus.NOT_REVIEWED
     legal_acceptance_state: LegalAcceptanceState = LegalAcceptanceState.NOT_ACCEPTED
     verification_status: VerificationStatus = VerificationStatus.NOT_VERIFIED
-    verification_visibility: VerificationVisibility = VerificationVisibility.INTERNAL
+    verification_visibility: VerificationVisibility = VerificationVisibility.INTERNAL_ONLY
     seeded_source: Optional[str] = None
     seeded_source_reference: Optional[str] = None
     contact_email: Optional[str] = None
@@ -54,12 +54,17 @@ class SupplierRecord:
     def __post_init__(self):
         object.__setattr__(self, "name", _clean(self.name) or "")
         if isinstance(self.mode, str): object.__setattr__(self, "mode", SupplierMode(self.mode))
-        for attr in ("created_by", "updated_by", "contact_email", "contact_phone", "website_url", "tax_identifier", "seeded_source", "seeded_source_reference"):
+        if isinstance(self.verification_visibility, str): object.__setattr__(self, "verification_visibility", VerificationVisibility(self.verification_visibility))
+        for attr in ("created_by", "updated_by", "contact_email", "contact_phone", "website_url", "tax_identifier", "seeded_source", "seeded_source_reference", "assigned_verifier"):
             object.__setattr__(self, attr, _clean(getattr(self, attr)))
 
     @property
     def identity(self):
         return SupplierIdentity(supplier_id=self.supplier_id, external_reference=self.seeded_source_reference)
+
+    @property
+    def verification_assigned_to(self):
+        return self.assigned_verifier
 
     @classmethod
     def manual_draft(cls, name: str, region_context: SupplierRegionContext, **kw):
