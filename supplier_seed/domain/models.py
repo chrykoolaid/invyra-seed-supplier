@@ -57,6 +57,10 @@ class SupplierRecord:
         for attr in ("created_by", "updated_by", "contact_email", "contact_phone", "website_url", "tax_identifier", "seeded_source", "seeded_source_reference"):
             object.__setattr__(self, attr, _clean(getattr(self, attr)))
 
+    @property
+    def identity(self):
+        return SupplierIdentity(supplier_id=self.supplier_id, external_reference=self.seeded_source_reference)
+
     @classmethod
     def manual_draft(cls, name: str, region_context: SupplierRegionContext, **kw):
         return cls(kw.pop("supplier_id", str(uuid4())), name, SupplierMode.MANUAL, region_context, **kw)
