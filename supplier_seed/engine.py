@@ -73,6 +73,26 @@ class SupplierSeedEngine:
         result = self.legal_service.supersede(supplier, pending_version=pending_version, actor=actor, reason=reason, context=context, policy_engine=self.policy_engine)
         return self._apply_result("supersede_legal", supplier_id, result)
 
+    def assign_verification(self, supplier_id, assignee, actor=None, context=None):
+        supplier = self.repository.get(supplier_id)
+        result = self.verification_service.assign(supplier, assignee=assignee, actor=actor, context=context, policy_engine=self.policy_engine)
+        return self._apply_result("assign_verification", supplier_id, result)
+
+    def mark_verified(self, supplier_id, actor=None, context=None):
+        supplier = self.repository.get(supplier_id)
+        result = self.verification_service.mark_verified(supplier, actor=actor, context=context, policy_engine=self.policy_engine)
+        return self._apply_result("mark_verified", supplier_id, result)
+
+    def set_verification_visibility(self, supplier_id, visibility, actor=None, context=None):
+        supplier = self.repository.get(supplier_id)
+        result = self.verification_service.set_visibility(supplier, visibility=visibility, actor=actor, context=context, policy_engine=self.policy_engine)
+        return self._apply_result("set_verification_visibility", supplier_id, result)
+
+    def mark_verification_needs_review(self, supplier_id, actor=None, reason="", context=None):
+        supplier = self.repository.get(supplier_id)
+        result = self.verification_service.mark_needs_review(supplier, actor=actor, reason=reason, context=context, policy_engine=self.policy_engine)
+        return self._apply_result("mark_verification_needs_review", supplier_id, result)
+
     def list_suppliers(self):
         return self.repository.list()
 
