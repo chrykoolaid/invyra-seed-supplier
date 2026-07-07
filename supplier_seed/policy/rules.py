@@ -19,6 +19,10 @@ class PolicyContext:
     require_reason_for_legal_withdrawal: bool = False
     require_reason_for_legal_supersede: bool = False
     allow_seeded_legal_acceptance: bool = False
+    require_actor_for_verification_actions: bool = False
+    require_assignment_for_verification_decisions: bool = False
+    require_assignment_match_for_verification_decisions: bool = False
+    require_verified_status_for_visible_verification: bool = False
 
 @dataclass(frozen=True)
 class PolicyDecision:
