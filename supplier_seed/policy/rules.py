@@ -15,6 +15,10 @@ class PolicyContext:
     require_actor_for_moderation_actions: bool = False
     require_reason_for_moderation_rejection: bool = False
     require_reason_for_moderation_escalation: bool = False
+    require_actor_for_legal_actions: bool = False
+    require_reason_for_legal_withdrawal: bool = False
+    require_reason_for_legal_supersede: bool = False
+    allow_seeded_legal_acceptance: bool = False
 
 @dataclass(frozen=True)
 class PolicyDecision:
