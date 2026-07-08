@@ -66,6 +66,14 @@ class SupplierRecord:
     def verification_assigned_to(self):
         return self.assigned_verifier
 
+    @property
+    def is_seeded(self):
+        return self.mode == SupplierMode.SEEDED
+
+    @property
+    def is_manual(self):
+        return self.mode == SupplierMode.MANUAL
+
     @classmethod
     def manual_draft(cls, name: str, region_context: SupplierRegionContext, **kw):
         return cls(kw.pop("supplier_id", str(uuid4())), name, SupplierMode.MANUAL, region_context, **kw)
