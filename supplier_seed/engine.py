@@ -1,7 +1,8 @@
-from supplier_seed.domain.enums import GovernanceEventType
+from supplier_seed.domain.enums import GovernanceEventType, LegalAcceptanceState, LifecycleStatus, ModerationStatus, SupplierMode
 from supplier_seed.events.audit import GovernanceEventRecord
 from supplier_seed.ingestion.ingestion_service import SupplierIngestionBatchResult, SupplierIngestionService
 from supplier_seed.policy.rules import SupplierPolicyEngine
+from supplier_seed.read_models.workspace import SupplierRequirement, SupplierSummaryItem, SupplierWorkspace, SupplierWorkspaceSummary
 from supplier_seed.repository.memory_impl import InMemorySupplierRepository
 from supplier_seed.services.legal_service import LegalService
 from supplier_seed.services.moderation_service import ModerationService
@@ -98,6 +99,47 @@ class SupplierSeedEngine:
         supplier = self.repository.get(supplier_id)
         result = self.verification_service.mark_needs_review(supplier, actor=actor, reason=reason, context=context, policy_engine=self.policy_engine)
         return self._apply_result("mark_verification_needs_review", supplier_id, result)
+
+    def _activation_requirements(self, supplier, context=None):
+        moderation_required = supplier.mode == SupplierMode.SEEDED or (context and context.require_moderation_for_seeded_activation)
+        moderation_ok = supplier.moderation_status == ModerationStatus.APPROVED
+        legal_required = supplier.mode == SupplierMode.MANUAL and (not context or context.require_legal_acceptance_for_manual)
+        legal_ok = (not legal_required) or supplier.legal_acceptance_state == LegalAcceptanceState.ACCEPTED
+        requirements = [
+            SupplierRequirement("moderation", moderation_ok, blocking=moderation_required),
+            SupplierRequirement("legal_acceptance", legal_ok, blocking=legal_required),
+        ]
+        activation_ok = supplier.lifecycle_status == LifecycleStatus.APPROVED and moderation_ok and legal_ok
+        requirements.append(SupplierRequirement("activation", activation_ok, blocking=True))
+        return tuple(requirements), activation_ok
+
+    def _queue_and_step(self, supplier, context=None):
+        requirements, activation_ok = self._activation_requirements(supplier, context)
+        legal_requirement = next(item for item in requirements if item.code == "legal_acceptance")
+        if supplier.mode == SupplierMode.SEEDED and supplier.moderation_status != ModerationStatus.APPROVED:
+            return "moderation_review", "review_moderation"
+        if supplier.lifecycle_status == LifecycleStatus.APPROVED and legal_requirement.blocking and not legal_requirement.satisfied:
+            return "legal_review", "accept_legal"
+        if activation_ok:
+            return "activation_ready", "activate_supplier"
+        return "supplier_review", "review_supplier"
+
+    def get_supplier_workspace(self, supplier_id, context=None):
+        supplier = self.repository.get(supplier_id)
+        requirements, activation_ok = self._activation_requirements(supplier, context)
+        queue, next_step = self._queue_and_step(supplier, context)
+        timeline = tuple(sorted(self.repository.list_events(supplier_id), key=lambda event: event.occurred_at, reverse=True))
+        summary = SupplierWorkspaceSummary(supplier_id=supplier.supplier_id, name=supplier.name, primary_queue=queue, next_step=next_step)
+        return SupplierWorkspace(supplier=supplier, summary=summary, requirements=requirements, timeline=timeline, activation_allowed=activation_ok)
+
+    def list_supplier_summaries(self, context=None, queue=None):
+        items = []
+        for supplier in self.repository.list():
+            primary_queue, next_step = self._queue_and_step(supplier, context)
+            if queue and primary_queue != queue:
+                continue
+            items.append(SupplierSummaryItem(supplier_id=supplier.supplier_id, name=supplier.name, mode=supplier.mode, primary_queue=primary_queue, next_step=next_step))
+        return tuple(items)
 
     def list_suppliers(self):
         return self.repository.list()
