@@ -39,6 +39,22 @@ class SupplierIngestionResult:
 class SupplierIngestionBatchResult:
     results: Tuple[SupplierIngestionResult, ...]
 
+    @property
+    def allowed_count(self):
+        return sum(1 for result in self.results if result.outcome == PolicyOutcome.ALLOWED)
+
+    @property
+    def warning_count(self):
+        return sum(1 for result in self.results if result.outcome == PolicyOutcome.WARNING)
+
+    @property
+    def review_count(self):
+        return sum(1 for result in self.results if result.outcome == PolicyOutcome.REQUIRES_REVIEW)
+
+    @property
+    def blocked_count(self):
+        return sum(1 for result in self.results if result.outcome == PolicyOutcome.BLOCKED)
+
 class SupplierIngestionService:
     def __init__(self, policy_engine=None, dedupe_engine=None):
         self.policy_engine = policy_engine or SupplierPolicyEngine()
