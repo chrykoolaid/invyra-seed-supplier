@@ -1,6 +1,6 @@
 from supplier_seed.domain.enums import GovernanceEventType
 from supplier_seed.events.audit import GovernanceEventRecord
-from supplier_seed.ingestion.ingestion_service import SupplierIngestionService
+from supplier_seed.ingestion.ingestion_service import SupplierIngestionBatchResult, SupplierIngestionService
 from supplier_seed.policy.rules import SupplierPolicyEngine
 from supplier_seed.repository.memory_impl import InMemorySupplierRepository
 from supplier_seed.services.legal_service import LegalService
@@ -24,6 +24,12 @@ class SupplierSeedEngine:
             self.repository.save(result.supplier)
             self.repository.append_events(result.events)
         return result
+
+    def ingest_from_source(self, source, context=None):
+        results = []
+        for candidate in source.list_candidates():
+            results.append(self.ingest_supplier(candidate, context=context))
+        return SupplierIngestionBatchResult(tuple(results))
 
     def _apply_result(self, action, supplier_id, result):
         if result.allowed:
