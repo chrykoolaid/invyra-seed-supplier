@@ -12,6 +12,7 @@ class SupplierWorkspaceSummary:
     name: str
     primary_queue: str
     next_step: str
+    lifecycle_status: object = None
 
 @dataclass(frozen=True)
 class SupplierSummaryItem:
@@ -28,3 +29,10 @@ class SupplierWorkspace:
     requirements: tuple
     timeline: tuple
     activation_allowed: bool
+
+@dataclass(frozen=True)
+class OperationPresentation:
+    allowed: bool
+    status: str
+    events: tuple = ()
+    metadata: dict = None
