@@ -25,7 +25,7 @@ class ModerationStatus(StrEnum):
 
 class LegalAcceptanceState(StrEnum):
     NOT_REQUIRED = "not_required"
-    NOT_ACCEPTED = "not_accepted"
+    NOT_ACCEPTED = "required_missing"
     ACCEPTED = "accepted"
     WITHDRAWN = "withdrawn"
     SUPERSEDED = "superseded"
