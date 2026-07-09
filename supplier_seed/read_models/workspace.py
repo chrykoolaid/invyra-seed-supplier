@@ -13,6 +13,7 @@ class SupplierWorkspaceSummary:
     primary_queue: str
     next_step: str
     lifecycle_status: object = None
+    assigned_verifier: object = None
 
 @dataclass(frozen=True)
 class SupplierSummaryItem:
