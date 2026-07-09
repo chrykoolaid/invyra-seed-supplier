@@ -75,6 +75,7 @@ class GovernanceEventType(StrEnum):
     LEGAL_WITHDRAWN = "legal_withdrawn"
     LEGAL_SUPERSEDED = "legal_superseded"
     VERIFICATION_ASSIGNED = "verification_assigned"
+    VERIFICATION_PENDING = "verification_pending"
     VERIFICATION_VERIFIED = "verification_verified"
     VERIFICATION_FAILED = "verification_failed"
     VERIFICATION_NEEDS_REVIEW = "verification_needs_review"
