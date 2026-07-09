@@ -104,6 +104,13 @@ class JsonFileSupplierRepository(InMemorySupplierRepository):
                 merged_events.append(event)
                 existing_event_ids.add(event.event_id)
         self.audit_events = merged_events
+        existing_keys = {receipt.get("idempotency_key") for receipt in disk.operation_receipts}
+        merged_receipts = list(disk.operation_receipts)
+        for receipt in self.operation_receipts:
+            if receipt.get("idempotency_key") not in existing_keys:
+                merged_receipts.append(receipt)
+                existing_keys.add(receipt.get("idempotency_key"))
+        self.operation_receipts = merged_receipts
         self.snapshot_revision = max(self.snapshot_revision, disk.snapshot_revision)
 
     def _replace_snapshot_file(self, payload_text):
@@ -118,8 +125,29 @@ class JsonFileSupplierRepository(InMemorySupplierRepository):
         if increment_revision:
             self._merge_disk_state()
             self.snapshot_revision += 1
-        payload_text = json.dumps(self._payload(), indent=2)
-        self._replace_snapshot_file(payload_text)
+        self._replace_snapshot_file(json.dumps(self._payload(), indent=2))
+
+    def find_operation_receipt(self, idempotency_key):
+        if not idempotency_key:
+            return None
+        if self.path and self.path.exists():
+            self._load()
+        return next((receipt for receipt in self.operation_receipts if receipt.get("idempotency_key") == idempotency_key), None)
+
+    def record_operation_receipt(self, idempotency_key, supplier_id, event_ids, action):
+        if not idempotency_key:
+            return None
+        existing = self.find_operation_receipt(idempotency_key)
+        if existing:
+            return existing
+        receipt = {"idempotency_key": idempotency_key, "supplier_id": supplier_id, "event_ids": list(event_ids), "action": action}
+        self.operation_receipts.append(receipt)
+        self._persist()
+        return receipt
+
+    def events_by_ids(self, event_ids):
+        by_id = {event.event_id: event for event in self.audit_events}
+        return tuple(by_id[event_id] for event_id in event_ids if event_id in by_id)
 
     def save(self, supplier):
         self.suppliers[supplier.supplier_id] = supplier
