@@ -1,5 +1,6 @@
 import json
-from dataclasses import asdict, is_dataclass
+import os
+from dataclasses import asdict
 from datetime import datetime
 from pathlib import Path
 
@@ -9,13 +10,17 @@ from supplier_seed.events.audit import GovernanceEventRecord
 from supplier_seed.repository.memory_impl import InMemorySupplierRepository
 
 class JsonFileSupplierRepository(InMemorySupplierRepository):
+    SCHEMA_VERSION = 4
+
     def __init__(self, path=None):
         super().__init__()
         self.path = Path(path) if path is not None else None
+        self.snapshot_revision = 0
+        self.operation_receipts = []
         if self.path and self.path.exists():
             self._load()
         elif self.path:
-            self._persist()
+            self._persist(increment_revision=False)
 
     def _enum_value(self, value):
         return value.value if hasattr(value, "value") else value
@@ -47,9 +52,8 @@ class JsonFileSupplierRepository(InMemorySupplierRepository):
 
     def _supplier_from_dict(self, payload):
         region_payload = payload.get("region_context", {})
-        region = SupplierRegionContext(**region_payload)
         data = dict(payload)
-        data["region_context"] = region
+        data["region_context"] = SupplierRegionContext(**region_payload)
         data["mode"] = SupplierMode(data["mode"])
         data["lifecycle_status"] = LifecycleStatus(data["lifecycle_status"])
         data["moderation_status"] = ModerationStatus(data["moderation_status"])
@@ -74,20 +78,48 @@ class JsonFileSupplierRepository(InMemorySupplierRepository):
 
     def _payload(self):
         return {
+            "schema_version": self.SCHEMA_VERSION,
+            "snapshot_revision": self.snapshot_revision,
+            "operation_receipts": self.operation_receipts,
             "suppliers": [self._supplier_to_dict(supplier) for supplier in self.suppliers.values()],
             "audit_events": [self._event_to_dict(event) for event in self.audit_events],
         }
 
-    def _persist(self):
+    def _load(self):
+        payload = json.loads(self.path.read_text(encoding="utf-8"))
+        self.snapshot_revision = int(payload.get("snapshot_revision", 0))
+        self.operation_receipts = list(payload.get("operation_receipts", []))
+        self.suppliers = {supplier.supplier_id: supplier for supplier in (self._supplier_from_dict(item) for item in payload.get("suppliers", []))}
+        self.audit_events = [self._event_from_dict(item) for item in payload.get("audit_events", [])]
+
+    def _merge_disk_state(self):
+        if not self.path or not self.path.exists():
+            return
+        disk = JsonFileSupplierRepository(self.path)
+        self.suppliers = {**disk.suppliers, **self.suppliers}
+        existing_event_ids = {event.event_id for event in disk.audit_events}
+        merged_events = list(disk.audit_events)
+        for event in self.audit_events:
+            if event.event_id not in existing_event_ids:
+                merged_events.append(event)
+                existing_event_ids.add(event.event_id)
+        self.audit_events = merged_events
+        self.snapshot_revision = max(self.snapshot_revision, disk.snapshot_revision)
+
+    def _replace_snapshot_file(self, payload_text):
+        tmp_path = self.path.with_suffix(self.path.suffix + ".tmp")
+        tmp_path.write_text(payload_text, encoding="utf-8")
+        os.replace(tmp_path, self.path)
+
+    def _persist(self, increment_revision=True):
         if not self.path:
             return
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        self.path.write_text(json.dumps(self._payload(), indent=2), encoding="utf-8")
-
-    def _load(self):
-        payload = json.loads(self.path.read_text(encoding="utf-8"))
-        self.suppliers = {supplier.supplier_id: supplier for supplier in (self._supplier_from_dict(item) for item in payload.get("suppliers", []))}
-        self.audit_events = [self._event_from_dict(item) for item in payload.get("audit_events", [])]
+        if increment_revision:
+            self._merge_disk_state()
+            self.snapshot_revision += 1
+        payload_text = json.dumps(self._payload(), indent=2)
+        self._replace_snapshot_file(payload_text)
 
     def save(self, supplier):
         self.suppliers[supplier.supplier_id] = supplier
@@ -95,7 +127,11 @@ class JsonFileSupplierRepository(InMemorySupplierRepository):
         return supplier
 
     def append_events(self, events):
-        self.audit_events.extend(events)
+        existing_ids = {event.event_id for event in self.audit_events}
+        for event in events:
+            if event.event_id not in existing_ids:
+                self.audit_events.append(event)
+                existing_ids.add(event.event_id)
         self._persist()
         return tuple(events)
 
@@ -113,6 +149,10 @@ class JsonFileSupplierRepository(InMemorySupplierRepository):
             if event.supplier_id != supplier.supplier_id:
                 raise ValueError("Audit event supplier_id must match saved supplier")
         self.suppliers[supplier.supplier_id] = supplier
-        self.audit_events.extend(events)
+        existing_ids = {event.event_id for event in self.audit_events}
+        for event in events:
+            if event.event_id not in existing_ids:
+                self.audit_events.append(event)
+                existing_ids.add(event.event_id)
         self._persist()
         return supplier
