@@ -1,4 +1,5 @@
 from dataclasses import replace
+from datetime import datetime
 
 from supplier_seed.domain.enums import GovernanceEventType, LegalAcceptanceState, LifecycleStatus, ModerationStatus, PolicyOutcome, SupplierMode
 from supplier_seed.domain.validation import ValidationIssue
@@ -112,7 +113,8 @@ class SupplierSeedEngine:
             issues = tuple(ValidationIssue(f"activation.blocked.{item.code}") for item in requirements if item.blocking and not item.satisfied)
             result = GovernanceServiceResult(False, supplier, issues, ())
             return self._apply_result("activate_supplier", supplier_id, result, source="engine.lifecycle")
-        updated = replace(supplier, lifecycle_status=LifecycleStatus.ACTIVE).with_updated_metadata(actor)
+        now = datetime.utcnow()
+        updated = replace(supplier, lifecycle_status=LifecycleStatus.ACTIVE, activated_at=now).with_updated_metadata(actor)
         event = GovernanceEventRecord.for_supplier(
             supplier_id,
             GovernanceEventType.LIFECYCLE_STATUS_CHANGED,
