@@ -13,9 +13,11 @@ class SupplierRegionContext:
     region_code: Optional[str] = None
     market_code: str = "PH"
     pilot_enabled: bool = False
+    pilot_name: Optional[str] = None
     def __post_init__(self):
         object.__setattr__(self, "region_code", _upper(self.region_code))
         object.__setattr__(self, "market_code", _upper(self.market_code) or "PH")
+        object.__setattr__(self, "pilot_name", _clean(self.pilot_name))
 
 @dataclass(frozen=True)
 class SupplierIdentity:
@@ -49,38 +51,32 @@ class SupplierRecord:
     assigned_at: Optional[datetime] = None
     last_reviewed_at: Optional[datetime] = None
     last_reviewed_by: Optional[str] = None
+    pilot_terms_accepted_version: Optional[str] = None
+    pilot_terms_accepted_by: Optional[str] = None
+    pilot_terms_accepted_at: Optional[datetime] = None
     metadata: dict = field(default_factory=dict)
 
     def __post_init__(self):
         object.__setattr__(self, "name", _clean(self.name) or "")
         if isinstance(self.mode, str): object.__setattr__(self, "mode", SupplierMode(self.mode))
         if isinstance(self.verification_visibility, str): object.__setattr__(self, "verification_visibility", VerificationVisibility(self.verification_visibility))
-        for attr in ("created_by", "updated_by", "contact_email", "contact_phone", "website_url", "tax_identifier", "seeded_source", "seeded_source_reference", "assigned_verifier"):
+        for attr in ("created_by", "updated_by", "contact_email", "contact_phone", "website_url", "tax_identifier", "seeded_source", "seeded_source_reference", "assigned_verifier", "pilot_terms_accepted_version", "pilot_terms_accepted_by"):
             object.__setattr__(self, attr, _clean(getattr(self, attr)))
 
     @property
-    def identity(self):
-        return SupplierIdentity(supplier_id=self.supplier_id, external_reference=self.seeded_source_reference)
-
+    def identity(self): return SupplierIdentity(supplier_id=self.supplier_id, external_reference=self.seeded_source_reference)
     @property
-    def verification_assigned_to(self):
-        return self.assigned_verifier
-
+    def verification_assigned_to(self): return self.assigned_verifier
     @property
-    def is_seeded(self):
-        return self.mode == SupplierMode.SEEDED
-
+    def is_seeded(self): return self.mode == SupplierMode.SEEDED
     @property
-    def is_manual(self):
-        return self.mode == SupplierMode.MANUAL
+    def is_manual(self): return self.mode == SupplierMode.MANUAL
 
     @classmethod
     def manual_draft(cls, name: str, region_context: SupplierRegionContext, **kw):
         return cls(kw.pop("supplier_id", str(uuid4())), name, SupplierMode.MANUAL, region_context, **kw)
-
     @classmethod
     def seeded_draft(cls, name: str, seeded_source: str, seeded_source_reference: str, region_context: SupplierRegionContext, **kw):
         return cls(kw.pop("supplier_id", str(uuid4())), name, SupplierMode.SEEDED, region_context, seeded_source=_clean(seeded_source), seeded_source_reference=_clean(seeded_source_reference), legal_acceptance_state=LegalAcceptanceState.NOT_REQUIRED, **kw)
-
     def with_updated_metadata(self, actor: Optional[str] = None):
         return replace(self, updated_by=_clean(actor), updated_at=datetime.utcnow())
