@@ -84,6 +84,10 @@ class GovernanceEventType(StrEnum):
     MODERATION_APPROVED = "moderation_approved"
     MODERATION_REJECTED = "moderation_rejected"
     MODERATION_ESCALATED = "moderation_escalated"
+    PILOT_TERMS_ACCEPTED = "pilot_terms_accepted"
+    PILOT_ACCESS_ENABLED = "pilot_access_enabled"
+    PILOT_ACCESS_DISABLED = "pilot_access_disabled"
+    INCIDENT_LOGGED = "incident_logged"
 
 class DedupeMatchClassification(StrEnum):
     NO_MATCH = "no_match"
