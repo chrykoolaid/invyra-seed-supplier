@@ -30,7 +30,7 @@ class JsonFileSupplierRepository(InMemorySupplierRepository):
         payload["region_context"] = asdict(supplier.region_context)
         for key in ("mode", "lifecycle_status", "moderation_status", "legal_acceptance_state", "verification_status", "verification_visibility"):
             payload[key] = self._enum_value(payload[key])
-        for key in ("created_at", "updated_at", "activated_at", "assigned_at", "last_reviewed_at"):
+        for key in ("created_at", "updated_at", "activated_at", "assigned_at", "last_reviewed_at", "pilot_terms_accepted_at"):
             if payload.get(key) is not None:
                 payload[key] = payload[key].isoformat() if hasattr(payload[key], "isoformat") else payload[key]
         return payload
@@ -60,7 +60,7 @@ class JsonFileSupplierRepository(InMemorySupplierRepository):
         data["legal_acceptance_state"] = LegalAcceptanceState(data["legal_acceptance_state"])
         data["verification_status"] = VerificationStatus(data["verification_status"])
         data["verification_visibility"] = VerificationVisibility(data["verification_visibility"])
-        for key in ("created_at", "updated_at", "activated_at", "assigned_at", "last_reviewed_at"):
+        for key in ("created_at", "updated_at", "activated_at", "assigned_at", "last_reviewed_at", "pilot_terms_accepted_at"):
             data[key] = self._parse_datetime(data.get(key))
         return SupplierRecord(**data)
 
