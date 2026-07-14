@@ -13,6 +13,7 @@ jobs:
   test:
     runs-on: ubuntu-latest
     strategy:
+      fail-fast: false
       matrix:
         python-version: ['3.11', '3.12']
     steps:
@@ -33,4 +34,28 @@ jobs:
         run: python -m compileall -q supplier_seed
 
       - name: Run unit tests
-        run: python -m unittest discover -s tests -p 'test_*.py' -v
+        id: unit_tests
+        shell: bash
+        run: |
+          set -o pipefail
+          python -m unittest discover -s tests -p 'test_*.py' -v 2>&1 | tee test-results-${{ matrix.python-version }}.txt
+
+      - name: Publish test diagnostics to job summary
+        if: always()
+        shell: bash
+        run: |
+          {
+            echo '## Supplier Seed unittest output — Python ${{ matrix.python-version }}'
+            echo
+            echo '```text'
+            cat test-results-${{ matrix.python-version }}.txt 2>/dev/null || echo 'No test output file was created.'
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload unittest diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: supplier-seed-test-results-python-${{ matrix.python-version }}
+          path: test-results-${{ matrix.python-version }}.txt
+          if-no-files-found: warn
