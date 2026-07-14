@@ -46,6 +46,19 @@ class SupplierSeedEngine:
             self.repository.save(result.supplier); self.repository.append_events(result.events); self._remember(idempotency_key, result.supplier.supplier_id, result.events, 'ingest_supplier')
         return result
 
+    def ingest_batch(self, candidates, context=None, persist=True):
+        result = self.ingestion_service.ingest_batch(candidates, existing_suppliers=self.repository.list(), context=context)
+        if persist:
+            for item in result.results:
+                if not item.accepted_for_staging or item.supplier is None:
+                    continue
+                if hasattr(self.repository, 'save_supplier_with_events'):
+                    self.repository.save_supplier_with_events(item.supplier, item.events)
+                else:
+                    self.repository.save(item.supplier)
+                    self.repository.append_events(item.events)
+        return result
+
     def ingest_from_source(self, source, context=None, access_context=None, retry_policy=None):
         policy = retry_policy or RetryPolicy(max_attempts=1, backoff_seconds=0.0)
         last_error = None
