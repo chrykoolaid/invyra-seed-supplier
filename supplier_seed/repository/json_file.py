@@ -151,7 +151,7 @@ class JsonFileSupplierRepository(InMemorySupplierRepository):
 
     def save(self, supplier):
         self.suppliers[supplier.supplier_id] = supplier
-        self._persist()
+        self._persist(increment_revision=False)
         return supplier
 
     def append_events(self, events):
