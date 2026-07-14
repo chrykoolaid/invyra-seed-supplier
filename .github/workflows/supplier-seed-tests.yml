@@ -8,6 +8,7 @@ on:
 
 permissions:
   contents: read
+  issues: write
 
 jobs:
   test:
@@ -59,3 +60,31 @@ jobs:
           name: supplier-seed-test-results-python-${{ matrix.python-version }}
           path: test-results-${{ matrix.python-version }}.txt
           if-no-files-found: warn
+
+      - name: Publish failing diagnostics issue
+        if: failure() && matrix.python-version == '3.11'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TITLE='CI: Supplier Seed pytest failures'
+          OUTPUT_FILE='test-results-3.11.txt'
+          BODY_FILE='ci-failure-body.md'
+          {
+            echo '## Supplier Seed pytest failure'
+            echo
+            echo "Commit: $GITHUB_SHA"
+            echo "Workflow run: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+            echo
+            echo '```text'
+            tail -c 55000 "$OUTPUT_FILE" 2>/dev/null || echo 'No pytest output file was created.'
+            echo
+            echo '```'
+          } > "$BODY_FILE"
+
+          ISSUE_NUMBER=$(gh issue list --state open --search "$TITLE in:title" --json number --jq '.[0].number // empty')
+          if [ -n "$ISSUE_NUMBER" ]; then
+            gh issue comment "$ISSUE_NUMBER" --body-file "$BODY_FILE"
+          else
+            gh issue create --title "$TITLE" --body-file "$BODY_FILE"
+          fi
