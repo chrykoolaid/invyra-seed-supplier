@@ -33,26 +33,26 @@ jobs:
       - name: Compile package
         run: python -m compileall -q supplier_seed
 
-      - name: Run unit tests
-        id: unit_tests
+      - name: Run pytest suite
+        id: pytest
         shell: bash
         run: |
           set -o pipefail
-          python -m unittest discover -s tests -p 'test_*.py' -v 2>&1 | tee test-results-${{ matrix.python-version }}.txt
+          python -m pytest -vv --tb=short 2>&1 | tee test-results-${{ matrix.python-version }}.txt
 
       - name: Publish test diagnostics to job summary
         if: always()
         shell: bash
         run: |
           {
-            echo '## Supplier Seed unittest output — Python ${{ matrix.python-version }}'
+            echo '## Supplier Seed pytest output — Python ${{ matrix.python-version }}'
             echo
             echo '```text'
             cat test-results-${{ matrix.python-version }}.txt 2>/dev/null || echo 'No test output file was created.'
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Upload unittest diagnostics
+      - name: Upload pytest diagnostics
         if: always()
         uses: actions/upload-artifact@v4
         with:
