@@ -54,6 +54,7 @@ class PolicyOutcome(StrEnum):
     BLOCKED = "blocked"
     REQUIRES_REVIEW = "requires_review"
     WARNING = "warning"
+    ALLOWED_WITH_WARNING = "warning"
 
 class SupplierAction(StrEnum):
     CREATE_MANUAL = "create_manual"
