@@ -100,7 +100,7 @@ class SupplierIngestionService:
         if not decisions:
             decisions.append(IngestionDecision("ingestion.accepted", PolicyOutcome.ALLOWED))
         accepted = outcome != PolicyOutcome.BLOCKED
-        events = (GovernanceEventRecord.for_supplier(supplier.supplier_id, GovernanceEventType.SUPPLIER_STAGED, actor=candidate.created_by),) if accepted else ()
+        events = (GovernanceEventRecord.for_supplier(supplier.supplier_id, GovernanceEventType.SUPPLIER_STAGED, actor=candidate.created_by, source="ingestion.service"),) if accepted else ()
         return SupplierIngestionResult(outcome, supplier, accepted, tuple(decisions), events)
 
     def ingest_batch(self, candidates, existing_suppliers=(), context=None):
