@@ -1,4 +1,5 @@
 import json
+import multiprocessing
 import tempfile
 import threading
 import unittest
@@ -11,6 +12,38 @@ from supplier_seed.engine import SupplierSeedEngine
 from supplier_seed.ingestion.ingestion_service import SupplierCandidateInput
 from supplier_seed.policy.rules import PolicyContext, SupplierPolicyEngine
 from supplier_seed.repository.json_file import JsonFileSupplierRepository
+
+
+def _write_supplier_from_process(repo_path, index, start_event, result_queue):
+    try:
+        region = SupplierRegionContext(region_code="NCR", market_code="PH", pilot_enabled=True)
+        context = PolicyContext(
+            region_code="NCR",
+            market_code="PH",
+            pilot_enabled=True,
+            allow_seeded_supplier_creation=True,
+            require_region_for_supplier=True,
+            require_legal_acceptance_for_manual=True,
+            require_moderation_for_seeded_activation=True,
+            require_actor_for_verification_actions=True,
+            require_assignment_for_verification_decisions=True,
+            require_assignment_match_for_verification_decisions=True,
+            require_verified_status_for_visible_verification=True,
+        )
+        repository = JsonFileSupplierRepository(repo_path)
+        engine = SupplierSeedEngine(repository=repository, policy_engine=SupplierPolicyEngine())
+        candidate = SupplierCandidateInput(
+            name=f"Process Supplier {index:04d}",
+            mode=SupplierMode.MANUAL,
+            region_context=region,
+            tax_identifier=f"PH-P-{index:08d}",
+            created_by=f"process-writer-{index}",
+        )
+        start_event.wait()
+        result = engine.ingest_supplier(candidate, context=context)
+        result_queue.put((index, result.accepted_for_staging, None))
+    except Exception as exc:
+        result_queue.put((index, False, repr(exc)))
 
 
 class SupplierSeedPartRTests(unittest.TestCase):
@@ -124,6 +157,44 @@ class SupplierSeedPartRTests(unittest.TestCase):
             self.assertEqual(
                 {supplier.name for supplier in suppliers},
                 {f"Hardening Supplier {index:04d}" for index in range(writer_count)},
+            )
+
+    def test_simultaneous_process_writers_are_serialized_without_loss(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            repo_path = Path(tmpdir) / "supplier_seed_snapshot.json"
+            JsonFileSupplierRepository(repo_path)
+            writer_count = 8
+            process_context = multiprocessing.get_context("spawn")
+            start_event = process_context.Event()
+            result_queue = process_context.Queue()
+            processes = [
+                process_context.Process(
+                    target=_write_supplier_from_process,
+                    args=(str(repo_path), index, start_event, result_queue),
+                )
+                for index in range(writer_count)
+            ]
+
+            for process in processes:
+                process.start()
+            start_event.set()
+            for process in processes:
+                process.join(timeout=20)
+
+            self.assertTrue(all(not process.is_alive() for process in processes))
+            self.assertTrue(all(process.exitcode == 0 for process in processes))
+            results = [result_queue.get(timeout=5) for _ in range(writer_count)]
+            self.assertTrue(all(accepted and error is None for _, accepted, error in results))
+
+            reopened = JsonFileSupplierRepository(repo_path)
+            suppliers = tuple(reopened.list_suppliers())
+            events = tuple(reopened.list_audit_events())
+
+            self.assertEqual(len(suppliers), writer_count)
+            self.assertEqual(len(events), writer_count)
+            self.assertEqual(
+                {supplier.name for supplier in suppliers},
+                {f"Process Supplier {index:04d}" for index in range(writer_count)},
             )
 
     def test_corrupt_snapshot_is_rejected_without_rewriting_original_bytes(self) -> None:
