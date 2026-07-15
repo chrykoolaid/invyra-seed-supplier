@@ -99,5 +99,6 @@ class DedupeMatchClassification(StrEnum):
 class PilotIncidentSeverity(StrEnum):
     LOW = "low"
     MEDIUM = "medium"
+    WARNING = "warning"
     HIGH = "high"
     CRITICAL = "critical"
