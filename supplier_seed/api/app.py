@@ -14,6 +14,15 @@ from supplier_seed import (
     SupplierRegionContext,
     SupplierSeedEngine,
 )
+from supplier_seed.api.contracts import (
+    CapabilitiesResponse,
+    ErrorEnvelope,
+    HealthResponse,
+    PaginatedResponse,
+    PilotReleaseSummaryResponse,
+    PilotRunbookResponse,
+    SupplierDetailResponse,
+)
 
 
 class RegionContextPayload(BaseModel):
@@ -120,15 +129,14 @@ def _event_payload(event) -> dict[str, Any]:
 
 
 def _candidate_from_payload(payload: SupplierCandidatePayload) -> SupplierCandidateInput:
-    region = SupplierRegionContext(
-        region_code=payload.region_context.region_code,
-        market_code=payload.region_context.market_code,
-        pilot_enabled=payload.region_context.pilot_enabled,
-    )
     return SupplierCandidateInput(
         name=payload.name,
         mode=payload.mode,
-        region_context=region,
+        region_context=SupplierRegionContext(
+            region_code=payload.region_context.region_code,
+            market_code=payload.region_context.market_code,
+            pilot_enabled=payload.region_context.pilot_enabled,
+        ),
         seeded_source=payload.seeded_source,
         seeded_source_reference=payload.seeded_source_reference,
         contact_email=payload.contact_email,
@@ -165,19 +173,94 @@ def _paginated(items, limit: int, offset: int) -> dict[str, Any]:
     }
 
 
+def _capabilities() -> dict[str, Any]:
+    return {
+        "api_version": "v1",
+        "service_version": "1.3.0",
+        "mutation_authority": "domain_service_only",
+        "enterprise_api_read_only": True,
+        "error_codes": [
+            "queue.invalid_bucket",
+            "supplier.not_found",
+            "permission.view_pilot_internals.denied",
+            "request.validation_failed",
+        ],
+        "endpoints": [
+            {
+                "path": "/v1/suppliers",
+                "filters": ["search", "region_code", "mode", "seeded_source", "lifecycle_status", "moderation_status"],
+                "sort": ["name:asc", "supplier_id:asc"],
+                "pagination": {"default_limit": 50, "maximum_limit": 200},
+            },
+            {
+                "path": "/v1/suppliers/{supplier_id}",
+                "filters": [],
+                "sort": [],
+                "pagination": None,
+            },
+            {
+                "path": "/v1/queues/moderation/{queue_bucket}",
+                "filters": ["queue_bucket"],
+                "sort": ["name:asc", "supplier_id:asc"],
+                "pagination": {"default_limit": 50, "maximum_limit": 200},
+            },
+            {
+                "path": "/v1/queues/verification/{queue_bucket}",
+                "filters": ["queue_bucket"],
+                "sort": ["name:asc", "supplier_id:asc"],
+                "pagination": {"default_limit": 50, "maximum_limit": 200},
+            },
+            {
+                "path": "/v1/queues/activation-ready",
+                "filters": [],
+                "sort": ["name:asc", "supplier_id:asc"],
+                "pagination": {"default_limit": 50, "maximum_limit": 200},
+            },
+            {
+                "path": "/v1/suppliers/{supplier_id}/audit-events",
+                "filters": ["event_type", "actor"],
+                "sort": ["occurred_at:desc"],
+                "pagination": {"default_limit": 100, "maximum_limit": 500},
+            },
+            {
+                "path": "/v1/pilots/{pilot_name}/release-summary",
+                "filters": ["pilot_name"],
+                "sort": [],
+                "pagination": None,
+            },
+            {
+                "path": "/v1/pilots/{pilot_name}/incidents",
+                "filters": ["pilot_name", "severity"],
+                "sort": ["occurred_at:desc"],
+                "pagination": {"default_limit": 100, "maximum_limit": 500},
+            },
+            {
+                "path": "/v1/pilot/runbook",
+                "filters": [],
+                "sort": [],
+                "pagination": None,
+            },
+        ],
+    }
+
+
 def create_app(engine: SupplierSeedEngine | None = None, access_context: AccessContext | None = None) -> FastAPI:
     read_engine = engine or SupplierSeedEngine()
     application = FastAPI(
         title="Invyra Supplier Seed API",
-        version="1.2.0",
+        version="1.3.0",
         description="Governed Supplier Seed API. Enterprise endpoints are read-only unless explicitly documented.",
     )
 
-    @application.get("/health")
+    @application.get("/health", response_model=HealthResponse)
     def health() -> dict[str, str]:
         return {"status": "ok", "service": "invyra-supplier-seed"}
 
-    @application.get("/v1/suppliers")
+    @application.get("/v1/capabilities", response_model=CapabilitiesResponse)
+    def capabilities() -> dict[str, Any]:
+        return _capabilities()
+
+    @application.get("/v1/suppliers", response_model=PaginatedResponse)
     def list_suppliers(
         search: str | None = None,
         region_code: str | None = None,
@@ -204,21 +287,28 @@ def create_app(engine: SupplierSeedEngine | None = None, access_context: AccessC
         suppliers.sort(key=lambda supplier: (supplier.name.casefold(), supplier.supplier_id))
         return _paginated([_supplier_summary(supplier) for supplier in suppliers], limit, offset)
 
-    @application.get("/v1/suppliers/{supplier_id}")
+    @application.get(
+        "/v1/suppliers/{supplier_id}",
+        response_model=SupplierDetailResponse,
+        responses={404: {"model": ErrorEnvelope}},
+    )
     def get_supplier(supplier_id: str) -> dict[str, Any]:
         supplier = read_engine.get_supplier(supplier_id)
         if supplier is None:
             raise HTTPException(status_code=404, detail={"code": "supplier.not_found", "supplier_id": supplier_id})
         return {"api_version": "v1", "supplier": _supplier_detail(supplier)}
 
-    @application.get("/v1/queues/moderation/{queue_bucket}")
+    @application.get(
+        "/v1/queues/moderation/{queue_bucket}",
+        response_model=PaginatedResponse,
+        responses={400: {"model": ErrorEnvelope}},
+    )
     def moderation_queue(
         queue_bucket: str,
         limit: int = Query(default=50, ge=1, le=200),
         offset: int = Query(default=0, ge=0),
     ) -> dict[str, Any]:
-        allowed = {"open_cases", "pending_review", "completed"}
-        if queue_bucket not in allowed:
+        if queue_bucket not in {"open_cases", "pending_review", "completed"}:
             raise HTTPException(status_code=400, detail={"code": "queue.invalid_bucket", "queue": "moderation", "bucket": queue_bucket})
         entries = list(read_engine.list_moderation_queue(queue_bucket))
         items = [
@@ -233,14 +323,17 @@ def create_app(engine: SupplierSeedEngine | None = None, access_context: AccessC
         items.sort(key=lambda item: (item["name"].casefold(), item["supplier_id"]))
         return _paginated(items, limit, offset)
 
-    @application.get("/v1/queues/verification/{queue_bucket}")
+    @application.get(
+        "/v1/queues/verification/{queue_bucket}",
+        response_model=PaginatedResponse,
+        responses={400: {"model": ErrorEnvelope}},
+    )
     def verification_queue(
         queue_bucket: str,
         limit: int = Query(default=50, ge=1, le=200),
         offset: int = Query(default=0, ge=0),
     ) -> dict[str, Any]:
-        allowed = {"eligible", "pending", "verified"}
-        if queue_bucket not in allowed:
+        if queue_bucket not in {"eligible", "pending", "verified"}:
             raise HTTPException(status_code=400, detail={"code": "queue.invalid_bucket", "queue": "verification", "bucket": queue_bucket})
         entries = list(read_engine.list_verification_queue(queue_bucket))
         items = [
@@ -257,7 +350,7 @@ def create_app(engine: SupplierSeedEngine | None = None, access_context: AccessC
         items.sort(key=lambda item: (item["name"].casefold(), item["supplier_id"]))
         return _paginated(items, limit, offset)
 
-    @application.get("/v1/queues/activation-ready")
+    @application.get("/v1/queues/activation-ready", response_model=PaginatedResponse)
     def activation_ready_queue(
         limit: int = Query(default=50, ge=1, le=200),
         offset: int = Query(default=0, ge=0),
@@ -275,7 +368,11 @@ def create_app(engine: SupplierSeedEngine | None = None, access_context: AccessC
         items.sort(key=lambda item: (item["name"].casefold(), item["supplier_id"]))
         return _paginated(items, limit, offset)
 
-    @application.get("/v1/suppliers/{supplier_id}/audit-events")
+    @application.get(
+        "/v1/suppliers/{supplier_id}/audit-events",
+        response_model=PaginatedResponse,
+        responses={404: {"model": ErrorEnvelope}},
+    )
     def supplier_audit_events(
         supplier_id: str,
         event_type: str | None = None,
@@ -290,7 +387,11 @@ def create_app(engine: SupplierSeedEngine | None = None, access_context: AccessC
             events = [event for event in events if _enum_value(event.event_type) == event_type]
         return _paginated([_event_payload(event) for event in events], limit, offset)
 
-    @application.get("/v1/pilots/{pilot_name}/release-summary")
+    @application.get(
+        "/v1/pilots/{pilot_name}/release-summary",
+        response_model=PilotReleaseSummaryResponse,
+        responses={403: {"model": ErrorEnvelope}},
+    )
     def pilot_release_summary(pilot_name: str) -> dict[str, Any]:
         try:
             summary = read_engine.get_pilot_release_summary(pilot_name, access_context=access_context)
@@ -301,19 +402,17 @@ def create_app(engine: SupplierSeedEngine | None = None, access_context: AccessC
             "pilot_name": pilot_name,
             "enabled_supplier_count": summary.enabled_supplier_count,
             "terms_accepted_count": summary.terms_accepted_count,
-            "incidents": {
-                "total": summary.incidents.total_incidents,
-                "critical": summary.incidents.critical_incidents,
-            },
+            "incidents": {"total": summary.incidents.total_incidents, "critical": summary.incidents.critical_incidents},
             "reversible": summary.reversible,
             "kpis": {"active_supplier_count": summary.kpis.active_supplier_count},
-            "expansion_gate": {
-                "ready": summary.expansion_gate.ready,
-                "blockers": list(summary.expansion_gate.blockers),
-            },
+            "expansion_gate": {"ready": summary.expansion_gate.ready, "blockers": list(summary.expansion_gate.blockers)},
         }
 
-    @application.get("/v1/pilots/{pilot_name}/incidents")
+    @application.get(
+        "/v1/pilots/{pilot_name}/incidents",
+        response_model=PaginatedResponse,
+        responses={403: {"model": ErrorEnvelope}},
+    )
     def pilot_incidents(
         pilot_name: str,
         severity: str | None = None,
@@ -327,15 +426,14 @@ def create_app(engine: SupplierSeedEngine | None = None, access_context: AccessC
         incidents = [
             event
             for event in read_engine.list_audit_events(access_context=access_context)
-            if event.event_type == GovernanceEventType.INCIDENT_LOGGED
-            and event.metadata.get("pilot_name") == pilot_name
+            if event.event_type == GovernanceEventType.INCIDENT_LOGGED and event.metadata.get("pilot_name") == pilot_name
         ]
         if severity:
             incidents = [event for event in incidents if event.metadata.get("severity") == severity]
         incidents.sort(key=lambda event: event.occurred_at, reverse=True)
         return _paginated([_event_payload(event) for event in incidents], limit, offset)
 
-    @application.get("/v1/pilot/runbook")
+    @application.get("/v1/pilot/runbook", response_model=PilotRunbookResponse)
     def pilot_runbook() -> dict[str, Any]:
         runbook = read_engine.get_pilot_runbook()
         return {
@@ -349,7 +447,6 @@ def create_app(engine: SupplierSeedEngine | None = None, access_context: AccessC
         preview_engine = SupplierSeedEngine()
         for existing in _existing_supplier_candidates(request.existing_suppliers):
             preview_engine.ingest_supplier(existing, persist=True)
-
         candidate = _candidate_from_payload(request.candidate)
         context = PolicyContext(
             region_code=candidate.region_context.region_code,
