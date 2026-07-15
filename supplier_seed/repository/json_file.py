@@ -1,5 +1,6 @@
 import json
 import os
+import threading
 from dataclasses import asdict
 from datetime import datetime
 from pathlib import Path
@@ -9,18 +10,32 @@ from supplier_seed.domain.models import SupplierRecord, SupplierRegionContext
 from supplier_seed.events.audit import GovernanceEventRecord
 from supplier_seed.repository.memory_impl import InMemorySupplierRepository
 
+
 class JsonFileSupplierRepository(InMemorySupplierRepository):
     SCHEMA_VERSION = 4
+    _path_locks = {}
+    _path_locks_guard = threading.Lock()
+
+    @classmethod
+    def _lock_for_path(cls, path):
+        resolved = str(Path(path).resolve())
+        with cls._path_locks_guard:
+            lock = cls._path_locks.get(resolved)
+            if lock is None:
+                lock = threading.RLock()
+                cls._path_locks[resolved] = lock
+            return lock
 
     def __init__(self, path=None):
         super().__init__()
         self.path = Path(path) if path is not None else None
+        self._write_lock = self._lock_for_path(self.path) if self.path else threading.RLock()
         self.snapshot_revision = 0
         self.operation_receipts = []
         if self.path and self.path.exists():
             self._load()
         elif self.path:
-            self._persist(increment_revision=False)
+            self._persist(increment_revision=False, merge_disk=False)
 
     def _enum_value(self, value):
         return value.value if hasattr(value, "value") else value
@@ -118,14 +133,16 @@ class JsonFileSupplierRepository(InMemorySupplierRepository):
         tmp_path.write_text(payload_text, encoding="utf-8")
         os.replace(tmp_path, self.path)
 
-    def _persist(self, increment_revision=True):
+    def _persist(self, increment_revision=True, merge_disk=True):
         if not self.path:
             return
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        if increment_revision:
-            self._merge_disk_state()
-            self.snapshot_revision += 1
-        self._replace_snapshot_file(json.dumps(self._payload(), indent=2))
+        with self._write_lock:
+            self.path.parent.mkdir(parents=True, exist_ok=True)
+            if merge_disk:
+                self._merge_disk_state()
+            if increment_revision:
+                self.snapshot_revision += 1
+            self._replace_snapshot_file(json.dumps(self._payload(), indent=2))
 
     def find_operation_receipt(self, idempotency_key):
         if not idempotency_key:
@@ -151,7 +168,6 @@ class JsonFileSupplierRepository(InMemorySupplierRepository):
 
     def save(self, supplier):
         self.suppliers[supplier.supplier_id] = supplier
-        self._merge_disk_state()
         self._persist(increment_revision=False)
         return supplier
 
