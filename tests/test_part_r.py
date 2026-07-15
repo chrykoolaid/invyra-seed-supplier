@@ -1,6 +1,8 @@
 import json
 import tempfile
+import threading
 import unittest
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 from supplier_seed.domain.enums import SupplierMode
@@ -91,6 +93,37 @@ class SupplierSeedPartRTests(unittest.TestCase):
             self.assertEqual(
                 {supplier.name for supplier in suppliers},
                 {f"Hardening Supplier {index:04d}" for index in range(40)},
+            )
+
+    def test_simultaneous_repository_writers_are_serialized_without_loss(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            repo_path = Path(tmpdir) / "supplier_seed_snapshot.json"
+            JsonFileSupplierRepository(repo_path)
+            writer_count = 20
+            barrier = threading.Barrier(writer_count)
+
+            def write_supplier(index: int):
+                repo = JsonFileSupplierRepository(repo_path)
+                engine = SupplierSeedEngine(repository=repo, policy_engine=self.policy_engine)
+                barrier.wait()
+                return engine.ingest_supplier(
+                    self._candidate(index, actor=f"concurrent-writer-{index}"),
+                    context=self.policy_context,
+                )
+
+            with ThreadPoolExecutor(max_workers=writer_count) as executor:
+                results = tuple(executor.map(write_supplier, range(writer_count)))
+
+            self.assertTrue(all(result.accepted_for_staging for result in results))
+            reopened = JsonFileSupplierRepository(repo_path)
+            suppliers = tuple(reopened.list_suppliers())
+            events = tuple(reopened.list_audit_events())
+
+            self.assertEqual(len(suppliers), writer_count)
+            self.assertEqual(len(events), writer_count)
+            self.assertEqual(
+                {supplier.name for supplier in suppliers},
+                {f"Hardening Supplier {index:04d}" for index in range(writer_count)},
             )
 
     def test_corrupt_snapshot_is_rejected_without_rewriting_original_bytes(self) -> None:
