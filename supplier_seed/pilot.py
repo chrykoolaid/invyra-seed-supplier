@@ -122,3 +122,10 @@ class SupplierSeedEngine(CoreSupplierSeedEngine):
 
     def get_pilot_runbook(self):
         return PilotRunbook((PilotRunbookStep("accept_pilot_terms"), PilotRunbookStep("enable_pilot_access"), PilotRunbookStep("monitor_pilot")), "disable_pilot_access")
+
+
+# Phase T compatibility: enterprise API consumers may provide the core engine
+# directly. Reuse the authoritative read-only runbook implementation without
+# changing mutation authority or duplicating the response contract.
+if not hasattr(CoreSupplierSeedEngine, "get_pilot_runbook"):
+    CoreSupplierSeedEngine.get_pilot_runbook = SupplierSeedEngine.get_pilot_runbook
