@@ -6,6 +6,10 @@ from supplier_seed.sdk.models import (
     SupplierDetailResource,
     SupplierSummaryResource,
 )
+from supplier_seed.sdk.typed_client import (
+    SupplierSeedAsyncTypedReadClient,
+    SupplierSeedTypedReadClient,
+)
 
 __all__ = [
     "AuditEventResource",
@@ -13,6 +17,8 @@ __all__ = [
     "SupplierDetailResource",
     "SupplierSeedApiError",
     "SupplierSeedAsyncReadClient",
+    "SupplierSeedAsyncTypedReadClient",
     "SupplierSeedReadClient",
+    "SupplierSeedTypedReadClient",
     "SupplierSummaryResource",
 ]
