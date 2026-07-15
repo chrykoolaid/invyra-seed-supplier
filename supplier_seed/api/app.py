@@ -5,7 +5,15 @@ from typing import Any
 from fastapi import FastAPI, HTTPException, Query
 from pydantic import BaseModel, ConfigDict, Field
 
-from supplier_seed import PolicyContext, SupplierCandidateInput, SupplierMode, SupplierRegionContext, SupplierSeedEngine
+from supplier_seed import (
+    AccessContext,
+    GovernanceEventType,
+    PolicyContext,
+    SupplierCandidateInput,
+    SupplierMode,
+    SupplierRegionContext,
+    SupplierSeedEngine,
+)
 
 
 class RegionContextPayload(BaseModel):
@@ -78,6 +86,7 @@ def _supplier_detail(supplier) -> dict[str, Any]:
                 "region_code": supplier.region_context.region_code,
                 "market_code": supplier.region_context.market_code,
                 "pilot_enabled": supplier.region_context.pilot_enabled,
+                "pilot_name": supplier.region_context.pilot_name,
             },
             "seeded_source_reference": supplier.seeded_source_reference,
             "contact_email": supplier.contact_email,
@@ -156,11 +165,11 @@ def _paginated(items, limit: int, offset: int) -> dict[str, Any]:
     }
 
 
-def create_app(engine: SupplierSeedEngine | None = None) -> FastAPI:
+def create_app(engine: SupplierSeedEngine | None = None, access_context: AccessContext | None = None) -> FastAPI:
     read_engine = engine or SupplierSeedEngine()
     application = FastAPI(
         title="Invyra Supplier Seed API",
-        version="1.1.0",
+        version="1.2.0",
         description="Governed Supplier Seed API. Enterprise endpoints are read-only unless explicitly documented.",
     )
 
@@ -280,6 +289,60 @@ def create_app(engine: SupplierSeedEngine | None = None) -> FastAPI:
         if event_type:
             events = [event for event in events if _enum_value(event.event_type) == event_type]
         return _paginated([_event_payload(event) for event in events], limit, offset)
+
+    @application.get("/v1/pilots/{pilot_name}/release-summary")
+    def pilot_release_summary(pilot_name: str) -> dict[str, Any]:
+        try:
+            summary = read_engine.get_pilot_release_summary(pilot_name, access_context=access_context)
+        except PermissionError as exc:
+            raise HTTPException(status_code=403, detail={"code": str(exc), "pilot_name": pilot_name}) from exc
+        return {
+            "api_version": "v1",
+            "pilot_name": pilot_name,
+            "enabled_supplier_count": summary.enabled_supplier_count,
+            "terms_accepted_count": summary.terms_accepted_count,
+            "incidents": {
+                "total": summary.incidents.total_incidents,
+                "critical": summary.incidents.critical_incidents,
+            },
+            "reversible": summary.reversible,
+            "kpis": {"active_supplier_count": summary.kpis.active_supplier_count},
+            "expansion_gate": {
+                "ready": summary.expansion_gate.ready,
+                "blockers": list(summary.expansion_gate.blockers),
+            },
+        }
+
+    @application.get("/v1/pilots/{pilot_name}/incidents")
+    def pilot_incidents(
+        pilot_name: str,
+        severity: str | None = None,
+        limit: int = Query(default=100, ge=1, le=500),
+        offset: int = Query(default=0, ge=0),
+    ) -> dict[str, Any]:
+        try:
+            read_engine.get_pilot_release_summary(pilot_name, access_context=access_context)
+        except PermissionError as exc:
+            raise HTTPException(status_code=403, detail={"code": str(exc), "pilot_name": pilot_name}) from exc
+        incidents = [
+            event
+            for event in read_engine.list_audit_events(access_context=access_context)
+            if event.event_type == GovernanceEventType.INCIDENT_LOGGED
+            and event.metadata.get("pilot_name") == pilot_name
+        ]
+        if severity:
+            incidents = [event for event in incidents if event.metadata.get("severity") == severity]
+        incidents.sort(key=lambda event: event.occurred_at, reverse=True)
+        return _paginated([_event_payload(event) for event in incidents], limit, offset)
+
+    @application.get("/v1/pilot/runbook")
+    def pilot_runbook() -> dict[str, Any]:
+        runbook = read_engine.get_pilot_runbook()
+        return {
+            "api_version": "v1",
+            "steps": [step.action_name for step in runbook.steps],
+            "rollback_action": runbook.rollback_action,
+        }
 
     @application.post("/supplier-seed/ingest/preview")
     def preview_supplier_ingestion(request: PreviewRequest) -> dict[str, Any]:
