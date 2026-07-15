@@ -102,7 +102,7 @@ class SupplierSeedPhaseS3ApiTests(unittest.TestCase):
         supplier_id = self._enabled_supplier()
         self.engine.log_pilot_incident(
             supplier_id,
-            severity=PilotIncidentSeverity.WARNING,
+            severity=PilotIncidentSeverity.LOW,
             summary="Minor operator delay.",
             actor=self.manager.actor_id,
             access_context=self.manager,
