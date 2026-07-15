@@ -1,0 +1,112 @@
+name: SDK Package Certification
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build SDK distributions
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install build tooling
+        run: python -m pip install --upgrade pip build twine
+
+      - name: Build wheel and source distribution
+        run: python -m build
+
+      - name: Validate distribution metadata
+        run: python -m twine check dist/*
+
+      - name: Verify typed package marker is included
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          from zipfile import ZipFile
+
+          wheel = next(Path("dist").glob("*.whl"))
+          with ZipFile(wheel) as archive:
+              names = set(archive.namelist())
+          marker = "supplier_seed/py.typed"
+          if marker not in names:
+              raise SystemExit(f"missing {marker} from {wheel.name}")
+          print(f"verified {marker} in {wheel.name}")
+          PY
+
+      - name: Upload distributions
+        uses: actions/upload-artifact@v4
+        with:
+          name: invyra-supplier-seed-distributions
+          path: dist/*
+          if-no-files-found: error
+          retention-days: 14
+
+  install-smoke:
+    name: Install smoke Python ${{ matrix.python-version }}
+    needs: build
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.12"]
+    steps:
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Download distributions
+        uses: actions/download-artifact@v4
+        with:
+          name: invyra-supplier-seed-distributions
+          path: dist
+
+      - name: Install built wheel
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install dist/*.whl
+
+      - name: Smoke import public SDK
+        run: |
+          python - <<'PY'
+          from supplier_seed.sdk import (
+              AuditEventResource,
+              QueueResource,
+              SupplierDetailResource,
+              SupplierSeedApiError,
+              SupplierSeedAsyncReadClient,
+              SupplierSeedAsyncTypedReadClient,
+              SupplierSeedReadClient,
+              SupplierSeedTypedReadClient,
+              SupplierSummaryResource,
+          )
+
+          exports = (
+              AuditEventResource,
+              QueueResource,
+              SupplierDetailResource,
+              SupplierSeedApiError,
+              SupplierSeedAsyncReadClient,
+              SupplierSeedAsyncTypedReadClient,
+              SupplierSeedReadClient,
+              SupplierSeedTypedReadClient,
+              SupplierSummaryResource,
+          )
+          assert all(export is not None for export in exports)
+          print("public SDK imports passed")
+          PY
