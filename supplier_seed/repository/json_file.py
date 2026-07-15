@@ -1,6 +1,8 @@
 import json
 import os
 import threading
+import time
+from contextlib import contextmanager
 from dataclasses import asdict
 from datetime import datetime
 from pathlib import Path
@@ -16,26 +18,57 @@ class JsonFileSupplierRepository(InMemorySupplierRepository):
     _path_locks = {}
     _path_locks_guard = threading.Lock()
 
-    @classmethod
-    def _lock_for_path(cls, path):
-        resolved = str(Path(path).resolve())
-        with cls._path_locks_guard:
-            lock = cls._path_locks.get(resolved)
-            if lock is None:
-                lock = threading.RLock()
-                cls._path_locks[resolved] = lock
-            return lock
-
     def __init__(self, path=None):
         super().__init__()
         self.path = Path(path) if path is not None else None
-        self._write_lock = self._lock_for_path(self.path) if self.path else threading.RLock()
         self.snapshot_revision = 0
         self.operation_receipts = []
         if self.path and self.path.exists():
             self._load()
         elif self.path:
-            self._persist(increment_revision=False, merge_disk=False)
+            self._persist(increment_revision=False, merge_disk_state=False)
+
+    @classmethod
+    def _lock_for_path(cls, path):
+        key = str(path.resolve())
+        with cls._path_locks_guard:
+            return cls._path_locks.setdefault(key, threading.RLock())
+
+    @contextmanager
+    def _process_lock(self):
+        if not self.path:
+            yield
+            return
+        lock_path = self.path.with_suffix(self.path.suffix + ".lock")
+        lock_path.parent.mkdir(parents=True, exist_ok=True)
+        with lock_path.open("a+b") as handle:
+            if os.name == "nt":
+                import msvcrt
+
+                handle.seek(0, os.SEEK_END)
+                if handle.tell() == 0:
+                    handle.write(b"\0")
+                    handle.flush()
+                handle.seek(0)
+                while True:
+                    try:
+                        msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
+                        break
+                    except OSError:
+                        time.sleep(0.01)
+                try:
+                    yield
+                finally:
+                    handle.seek(0)
+                    msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
+            else:
+                import fcntl
+
+                fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+                try:
+                    yield
+                finally:
+                    fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
 
     def _enum_value(self, value):
         return value.value if hasattr(value, "value") else value
@@ -133,16 +166,18 @@ class JsonFileSupplierRepository(InMemorySupplierRepository):
         tmp_path.write_text(payload_text, encoding="utf-8")
         os.replace(tmp_path, self.path)
 
-    def _persist(self, increment_revision=True, merge_disk=True):
+    def _persist(self, increment_revision=True, merge_disk_state=True):
         if not self.path:
             return
-        with self._write_lock:
-            self.path.parent.mkdir(parents=True, exist_ok=True)
-            if merge_disk:
-                self._merge_disk_state()
-            if increment_revision:
-                self.snapshot_revision += 1
-            self._replace_snapshot_file(json.dumps(self._payload(), indent=2))
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        path_lock = self._lock_for_path(self.path)
+        with path_lock:
+            with self._process_lock():
+                if merge_disk_state:
+                    self._merge_disk_state()
+                if increment_revision:
+                    self.snapshot_revision += 1
+                self._replace_snapshot_file(json.dumps(self._payload(), indent=2))
 
     def find_operation_receipt(self, idempotency_key):
         if not idempotency_key:
