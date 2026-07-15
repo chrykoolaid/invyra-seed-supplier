@@ -97,6 +97,19 @@ def _supplier_detail(supplier) -> dict[str, Any]:
     return payload
 
 
+def _event_payload(event) -> dict[str, Any]:
+    return {
+        "event_id": event.event_id,
+        "supplier_id": event.supplier_id,
+        "event_type": _enum_value(event.event_type),
+        "occurred_at": event.occurred_at.isoformat() if event.occurred_at else None,
+        "actor": event.actor,
+        "source": event.source,
+        "summary": event.summary,
+        "metadata": event.metadata,
+    }
+
+
 def _candidate_from_payload(payload: SupplierCandidatePayload) -> SupplierCandidateInput:
     region = SupplierRegionContext(
         region_code=payload.region_context.region_code,
@@ -133,11 +146,21 @@ def _existing_supplier_candidates(payloads: list[ExistingSupplierPayload]) -> li
     ]
 
 
+def _paginated(items, limit: int, offset: int) -> dict[str, Any]:
+    total = len(items)
+    page = items[offset : offset + limit]
+    return {
+        "api_version": "v1",
+        "items": page,
+        "page": {"limit": limit, "offset": offset, "returned": len(page), "total": total},
+    }
+
+
 def create_app(engine: SupplierSeedEngine | None = None) -> FastAPI:
     read_engine = engine or SupplierSeedEngine()
     application = FastAPI(
         title="Invyra Supplier Seed API",
-        version="1.0.0",
+        version="1.1.0",
         description="Governed Supplier Seed API. Enterprise endpoints are read-only unless explicitly documented.",
     )
 
@@ -169,15 +192,8 @@ def create_app(engine: SupplierSeedEngine | None = None) -> FastAPI:
             suppliers = [supplier for supplier in suppliers if _enum_value(supplier.lifecycle_status) == lifecycle_status]
         if moderation_status:
             suppliers = [supplier for supplier in suppliers if _enum_value(supplier.moderation_status) == moderation_status]
-
         suppliers.sort(key=lambda supplier: (supplier.name.casefold(), supplier.supplier_id))
-        total = len(suppliers)
-        page = suppliers[offset : offset + limit]
-        return {
-            "api_version": "v1",
-            "items": [_supplier_summary(supplier) for supplier in page],
-            "page": {"limit": limit, "offset": offset, "returned": len(page), "total": total},
-        }
+        return _paginated([_supplier_summary(supplier) for supplier in suppliers], limit, offset)
 
     @application.get("/v1/suppliers/{supplier_id}")
     def get_supplier(supplier_id: str) -> dict[str, Any]:
@@ -185,6 +201,82 @@ def create_app(engine: SupplierSeedEngine | None = None) -> FastAPI:
         if supplier is None:
             raise HTTPException(status_code=404, detail={"code": "supplier.not_found", "supplier_id": supplier_id})
         return {"api_version": "v1", "supplier": _supplier_detail(supplier)}
+
+    @application.get("/v1/queues/moderation/{queue_bucket}")
+    def moderation_queue(
+        queue_bucket: str,
+        limit: int = Query(default=50, ge=1, le=200),
+        offset: int = Query(default=0, ge=0),
+    ) -> dict[str, Any]:
+        allowed = {"open_cases", "pending_review", "completed"}
+        if queue_bucket not in allowed:
+            raise HTTPException(status_code=400, detail={"code": "queue.invalid_bucket", "queue": "moderation", "bucket": queue_bucket})
+        entries = list(read_engine.list_moderation_queue(queue_bucket))
+        items = [
+            {
+                **_supplier_summary(entry.summary and read_engine.get_supplier(entry.summary.supplier_id)),
+                "queue_bucket": entry.queue_bucket,
+                "next_step": entry.summary.next_step,
+            }
+            for entry in entries
+        ]
+        items.sort(key=lambda item: (item["name"].casefold(), item["supplier_id"]))
+        return _paginated(items, limit, offset)
+
+    @application.get("/v1/queues/verification/{queue_bucket}")
+    def verification_queue(
+        queue_bucket: str,
+        limit: int = Query(default=50, ge=1, le=200),
+        offset: int = Query(default=0, ge=0),
+    ) -> dict[str, Any]:
+        allowed = {"eligible", "pending", "verified"}
+        if queue_bucket not in allowed:
+            raise HTTPException(status_code=400, detail={"code": "queue.invalid_bucket", "queue": "verification", "bucket": queue_bucket})
+        entries = list(read_engine.list_verification_queue(queue_bucket))
+        items = [
+            {
+                **_supplier_summary(read_engine.get_supplier(entry.summary.supplier_id)),
+                "queue_bucket": entry.queue_bucket,
+                "next_step": entry.summary.next_step,
+                "assigned_verifier": entry.assigned_to,
+                "verification_status": _enum_value(entry.verification_status),
+            }
+            for entry in entries
+        ]
+        items.sort(key=lambda item: (item["name"].casefold(), item["supplier_id"]))
+        return _paginated(items, limit, offset)
+
+    @application.get("/v1/queues/activation-ready")
+    def activation_ready_queue(
+        limit: int = Query(default=50, ge=1, le=200),
+        offset: int = Query(default=0, ge=0),
+    ) -> dict[str, Any]:
+        summaries = list(read_engine.list_supplier_summaries(queue="activation_ready"))
+        items = [
+            {
+                **_supplier_summary(read_engine.get_supplier(summary.supplier_id)),
+                "queue_bucket": summary.queue_bucket,
+                "next_step": summary.next_step,
+            }
+            for summary in summaries
+        ]
+        items.sort(key=lambda item: (item["name"].casefold(), item["supplier_id"]))
+        return _paginated(items, limit, offset)
+
+    @application.get("/v1/suppliers/{supplier_id}/audit-events")
+    def supplier_audit_events(
+        supplier_id: str,
+        event_type: str | None = None,
+        actor: str | None = None,
+        limit: int = Query(default=100, ge=1, le=500),
+        offset: int = Query(default=0, ge=0),
+    ) -> dict[str, Any]:
+        if read_engine.get_supplier(supplier_id) is None:
+            raise HTTPException(status_code=404, detail={"code": "supplier.not_found", "supplier_id": supplier_id})
+        events = list(read_engine.get_audit_timeline(supplier_id, actor=actor))
+        if event_type:
+            events = [event for event in events if _enum_value(event.event_type) == event_type]
+        return _paginated([_event_payload(event) for event in events], limit, offset)
 
     @application.post("/supplier-seed/ingest/preview")
     def preview_supplier_ingestion(request: PreviewRequest) -> dict[str, Any]:
