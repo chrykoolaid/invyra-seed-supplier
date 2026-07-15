@@ -214,8 +214,9 @@ def create_app(engine: SupplierSeedEngine | None = None) -> FastAPI:
         entries = list(read_engine.list_moderation_queue(queue_bucket))
         items = [
             {
-                **_supplier_summary(entry.summary and read_engine.get_supplier(entry.summary.supplier_id)),
+                **_supplier_summary(read_engine.get_supplier(entry.summary.supplier_id)),
                 "queue_bucket": entry.queue_bucket,
+                "primary_queue": entry.summary.primary_queue,
                 "next_step": entry.summary.next_step,
             }
             for entry in entries
@@ -237,6 +238,7 @@ def create_app(engine: SupplierSeedEngine | None = None) -> FastAPI:
             {
                 **_supplier_summary(read_engine.get_supplier(entry.summary.supplier_id)),
                 "queue_bucket": entry.queue_bucket,
+                "primary_queue": entry.summary.primary_queue,
                 "next_step": entry.summary.next_step,
                 "assigned_verifier": entry.assigned_to,
                 "verification_status": _enum_value(entry.verification_status),
@@ -255,7 +257,8 @@ def create_app(engine: SupplierSeedEngine | None = None) -> FastAPI:
         items = [
             {
                 **_supplier_summary(read_engine.get_supplier(summary.supplier_id)),
-                "queue_bucket": summary.queue_bucket,
+                "queue_bucket": summary.primary_queue,
+                "primary_queue": summary.primary_queue,
                 "next_step": summary.next_step,
             }
             for summary in summaries
