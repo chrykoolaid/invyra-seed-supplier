@@ -58,7 +58,7 @@ class SupplierSeedPhaseT5TypedResourceTests(unittest.TestCase):
 
         self.assertEqual(resource.supplier_id, self.supplier.supplier_id)
         self.assertEqual(resource.queue_bucket, "pending_review")
-        self.assertEqual(resource.next_step, "review_moderation")
+        self.assertEqual(resource.next_step, "review_supplier")
 
     def test_audit_payload_validates_datetime_and_metadata(self) -> None:
         payload = self.http.get(
