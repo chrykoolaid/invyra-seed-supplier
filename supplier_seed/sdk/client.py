@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Iterator, Mapping, Protocol
+from typing import Any, Callable, Iterator, Mapping, Protocol
 
 import httpx
 
@@ -71,6 +71,23 @@ class SupplierSeedReadClient:
             raise SupplierSeedApiError(response.status_code, code, detail)
         return payload
 
+    def _iter_pages(
+        self,
+        fetch_page: Callable[..., PaginatedResponse],
+        *,
+        page_size: int,
+        **filters: Any,
+    ) -> Iterator[dict[str, Any]]:
+        if page_size < 1:
+            raise ValueError("page_size must be at least 1")
+        offset = 0
+        while True:
+            page = fetch_page(limit=page_size, offset=offset, **filters)
+            yield from page.items
+            offset += page.page.returned
+            if page.page.returned == 0 or offset >= page.page.total:
+                return
+
     def capabilities(self) -> CapabilitiesResponse:
         return CapabilitiesResponse.model_validate(self._get("/v1/capabilities"))
 
@@ -104,17 +121,17 @@ class SupplierSeedReadClient:
         return PaginatedResponse.model_validate(self._get("/v1/suppliers", params))
 
     def iter_suppliers(self, *, page_size: int = 200, **filters: Any) -> Iterator[dict[str, Any]]:
-        offset = 0
-        while True:
-            page = self.list_suppliers(limit=page_size, offset=offset, **filters)
-            yield from page.items
-            offset += page.page.returned
-            if page.page.returned == 0 or offset >= page.page.total:
-                return
+        return self._iter_pages(self.list_suppliers, page_size=page_size, **filters)
 
     def moderation_queue(self, bucket: str, *, limit: int = 50, offset: int = 0) -> PaginatedResponse:
         return PaginatedResponse.model_validate(
             self._get(f"/v1/queues/moderation/{bucket}", {"limit": limit, "offset": offset})
+        )
+
+    def iter_moderation_queue(self, bucket: str, *, page_size: int = 200) -> Iterator[dict[str, Any]]:
+        return self._iter_pages(
+            lambda *, limit, offset: self.moderation_queue(bucket, limit=limit, offset=offset),
+            page_size=page_size,
         )
 
     def verification_queue(self, bucket: str, *, limit: int = 50, offset: int = 0) -> PaginatedResponse:
@@ -122,10 +139,19 @@ class SupplierSeedReadClient:
             self._get(f"/v1/queues/verification/{bucket}", {"limit": limit, "offset": offset})
         )
 
+    def iter_verification_queue(self, bucket: str, *, page_size: int = 200) -> Iterator[dict[str, Any]]:
+        return self._iter_pages(
+            lambda *, limit, offset: self.verification_queue(bucket, limit=limit, offset=offset),
+            page_size=page_size,
+        )
+
     def activation_ready(self, *, limit: int = 50, offset: int = 0) -> PaginatedResponse:
         return PaginatedResponse.model_validate(
             self._get("/v1/queues/activation-ready", {"limit": limit, "offset": offset})
         )
+
+    def iter_activation_ready(self, *, page_size: int = 200) -> Iterator[dict[str, Any]]:
+        return self._iter_pages(self.activation_ready, page_size=page_size)
 
     def audit_events(
         self,
@@ -141,6 +167,26 @@ class SupplierSeedReadClient:
         )
         return PaginatedResponse.model_validate(
             self._get(f"/v1/suppliers/{supplier_id}/audit-events", params)
+        )
+
+    def iter_audit_events(
+        self,
+        supplier_id: str,
+        *,
+        event_type: str | None = None,
+        actor: str | None = None,
+        page_size: int = 500,
+    ) -> Iterator[dict[str, Any]]:
+        return self._iter_pages(
+            lambda *, limit, offset, **filters: self.audit_events(
+                supplier_id,
+                limit=limit,
+                offset=offset,
+                **filters,
+            ),
+            page_size=page_size,
+            event_type=event_type,
+            actor=actor,
         )
 
     def pilot_release_summary(self, pilot_name: str) -> PilotReleaseSummaryResponse:
@@ -159,6 +205,24 @@ class SupplierSeedReadClient:
         params = _clean_params({"severity": severity, "limit": limit, "offset": offset})
         return PaginatedResponse.model_validate(
             self._get(f"/v1/pilots/{pilot_name}/incidents", params)
+        )
+
+    def iter_pilot_incidents(
+        self,
+        pilot_name: str,
+        *,
+        severity: str | None = None,
+        page_size: int = 500,
+    ) -> Iterator[dict[str, Any]]:
+        return self._iter_pages(
+            lambda *, limit, offset, **filters: self.pilot_incidents(
+                pilot_name,
+                limit=limit,
+                offset=offset,
+                **filters,
+            ),
+            page_size=page_size,
+            severity=severity,
         )
 
     def pilot_runbook(self) -> PilotRunbookResponse:
