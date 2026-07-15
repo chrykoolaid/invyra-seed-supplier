@@ -72,8 +72,8 @@ class SupplierSeedPhaseS2ApiTests(unittest.TestCase):
         self.assertEqual(payload["page"]["total"], 1)
         self.assertEqual(payload["items"][0]["supplier_id"], supplier.supplier_id)
         self.assertEqual(payload["items"][0]["queue_bucket"], "pending_review")
-        self.assertEqual(payload["items"][0]["primary_queue"], "moderation_review")
-        self.assertEqual(payload["items"][0]["next_step"], "review_moderation")
+        self.assertEqual(payload["items"][0]["primary_queue"], "supplier_review")
+        self.assertEqual(payload["items"][0]["next_step"], "review_supplier")
 
     def test_activation_ready_and_verification_eligible_queues_share_approved_supplier(self) -> None:
         supplier = self._approve_manual("Approved Queue Supplier")
