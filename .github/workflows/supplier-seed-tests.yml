@@ -88,3 +88,82 @@ jobs:
           else
             gh issue create --title "$TITLE" --body-file "$BODY_FILE"
           fi
+
+  release-certification:
+    name: Phase T release certification
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+
+      - name: Install release tooling
+        run: python -m pip install --upgrade pip build twine
+
+      - name: Build wheel and source distribution
+        run: python -m build
+
+      - name: Validate distribution metadata
+        run: python -m twine check dist/*
+
+      - name: Verify typed package marker
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          from zipfile import ZipFile
+
+          wheel = next(Path('dist').glob('*.whl'))
+          with ZipFile(wheel) as archive:
+              names = set(archive.namelist())
+          marker = 'supplier_seed/py.typed'
+          if marker not in names:
+              raise SystemExit(f'missing {marker} from {wheel.name}')
+          print(f'verified {marker} in {wheel.name}')
+          PY
+
+      - name: Install built wheel
+        run: python -m pip install --force-reinstall dist/*.whl
+
+      - name: Smoke import public SDK
+        run: |
+          python - <<'PY'
+          from supplier_seed.sdk import (
+              AuditEventResource,
+              QueueResource,
+              SupplierDetailResource,
+              SupplierSeedApiError,
+              SupplierSeedAsyncReadClient,
+              SupplierSeedAsyncTypedReadClient,
+              SupplierSeedReadClient,
+              SupplierSeedTypedReadClient,
+              SupplierSummaryResource,
+          )
+
+          exports = (
+              AuditEventResource,
+              QueueResource,
+              SupplierDetailResource,
+              SupplierSeedApiError,
+              SupplierSeedAsyncReadClient,
+              SupplierSeedAsyncTypedReadClient,
+              SupplierSeedReadClient,
+              SupplierSeedTypedReadClient,
+              SupplierSummaryResource,
+          )
+          assert all(export is not None for export in exports)
+          print('Phase T public SDK certification passed')
+          PY
+
+      - name: Upload certified distributions
+        uses: actions/upload-artifact@v4
+        with:
+          name: phase-t-certified-distributions
+          path: dist/*
+          if-no-files-found: error
+          retention-days: 14
