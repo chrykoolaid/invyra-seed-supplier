@@ -274,7 +274,7 @@ def test_exact_duplicate_returns_existing_candidate_and_does_not_stage_second_su
         client,
         "POST",
         INTERNAL_CREATE_PATH,
-        _candidate(name="Original Supplier", tax_identifier="PH-TAX-DUP"),
+        _candidate(name="Original Supplier", tax_identifier="PH-TAX-99999"),
     )
     assert first.status_code == 202
     existing_supplier_id = first.json()["supplier_id"]
@@ -283,7 +283,7 @@ def test_exact_duplicate_returns_existing_candidate_and_does_not_stage_second_su
         client,
         "POST",
         INTERNAL_CREATE_PATH,
-        _candidate(name="Renamed Supplier", tax_identifier="PH-TAX-DUP"),
+        _candidate(name="Renamed Supplier", tax_identifier="PH-TAX-99999"),
     )
 
     assert duplicate.status_code == 409
