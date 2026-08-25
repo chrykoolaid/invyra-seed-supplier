@@ -170,7 +170,7 @@ class SupplierSeedEngine:
             out.append(QueueEntry(self._summary_for(s, context, access_context), queue_bucket, s.assigned_verifier, s.verification_status))
         return tuple(out)
     def get_audit_timeline(self, supplier_id, event_type=None, actor=None, access_context=None):
-        events=sorted(self.repository.list_events(supplier_id), key=lambda e:e.occurred_at, reverse=True)
+        events=[event for _, event in sorted(enumerate(self.repository.list_events(supplier_id)), key=lambda item:(item[1].occurred_at, item[0]), reverse=True)]
         if event_type: events=[e for e in events if e.event_type==event_type]
         if actor: events=[e for e in events if e.actor==actor]
         return tuple(self._redact_event(e, access_context) for e in events)
