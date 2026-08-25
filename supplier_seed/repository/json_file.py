@@ -1,5 +1,6 @@
 import json
 import os
+import tempfile
 import threading
 import time
 from contextlib import contextmanager
@@ -13,10 +14,15 @@ from supplier_seed.events.audit import GovernanceEventRecord
 from supplier_seed.repository.memory_impl import InMemorySupplierRepository
 
 
+_IS_WINDOWS = os.name == "nt"
+
+
 class JsonFileSupplierRepository(InMemorySupplierRepository):
     SCHEMA_VERSION = 4
     _path_locks = {}
     _path_locks_guard = threading.Lock()
+    _WINDOWS_PERMISSION_RETRY_TIMEOUT_SECONDS = 5.0
+    _WINDOWS_PERMISSION_RETRY_DELAY_SECONDS = 0.02
 
     def __init__(self, path=None):
         super().__init__()
@@ -34,6 +40,18 @@ class JsonFileSupplierRepository(InMemorySupplierRepository):
         with cls._path_locks_guard:
             return cls._path_locks.setdefault(key, threading.RLock())
 
+    def _retry_windows_permission_error(self, operation):
+        if not _IS_WINDOWS:
+            return operation()
+        deadline = time.monotonic() + self._WINDOWS_PERMISSION_RETRY_TIMEOUT_SECONDS
+        while True:
+            try:
+                return operation()
+            except PermissionError:
+                if time.monotonic() >= deadline:
+                    raise
+                time.sleep(self._WINDOWS_PERMISSION_RETRY_DELAY_SECONDS)
+
     @contextmanager
     def _process_lock(self):
         if not self.path:
@@ -41,8 +59,9 @@ class JsonFileSupplierRepository(InMemorySupplierRepository):
             return
         lock_path = self.path.with_suffix(self.path.suffix + ".lock")
         lock_path.parent.mkdir(parents=True, exist_ok=True)
-        with lock_path.open("a+b") as handle:
-            if os.name == "nt":
+        handle = self._retry_windows_permission_error(lambda: lock_path.open("a+b"))
+        with handle:
+            if _IS_WINDOWS:
                 import msvcrt
 
                 handle.seek(0, os.SEEK_END)
@@ -162,9 +181,26 @@ class JsonFileSupplierRepository(InMemorySupplierRepository):
         self.snapshot_revision = max(self.snapshot_revision, disk.snapshot_revision)
 
     def _replace_snapshot_file(self, payload_text):
-        tmp_path = self.path.with_suffix(self.path.suffix + ".tmp")
-        tmp_path.write_text(payload_text, encoding="utf-8")
-        os.replace(tmp_path, self.path)
+        tmp_path = None
+        try:
+            with tempfile.NamedTemporaryFile(
+                mode="w",
+                encoding="utf-8",
+                dir=self.path.parent,
+                prefix=f".{self.path.name}.",
+                suffix=".tmp",
+                delete=False,
+            ) as handle:
+                handle.write(payload_text)
+                handle.flush()
+                tmp_path = Path(handle.name)
+            self._retry_windows_permission_error(lambda: os.replace(tmp_path, self.path))
+        finally:
+            if tmp_path is not None:
+                try:
+                    tmp_path.unlink(missing_ok=True)
+                except OSError:
+                    pass
 
     def _persist(self, increment_revision=True, merge_disk_state=True):
         if not self.path:
