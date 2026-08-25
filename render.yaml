@@ -1,0 +1,31 @@
+services:
+  - type: web
+    name: invyra-supplier-seed-internal
+    runtime: python
+    repo: https://github.com/chrykoolaid/invyra-seed-supplier
+    branch: r3-p4-render-deployment-prep
+    region: singapore
+    plan: starter
+    numInstances: 1
+    autoDeployTrigger: off
+    buildCommand: python -m pip install .
+    startCommand: uvicorn supplier_seed.api.internal_runtime:app --host 0.0.0.0 --port $PORT
+    disk:
+      name: supplier-seed-data
+      mountPath: /var/data
+      sizeGB: 1
+    envVars:
+      - key: SUPPLIER_SEED_INTERNAL_WRITE_ENABLED
+        value: "true"
+      - key: SUPPLIER_SEED_INTERNAL_SERVICE_ID
+        value: inventory
+      - key: SUPPLIER_SEED_INTERNAL_HMAC_KEYS_JSON
+        sync: false
+      - key: SUPPLIER_SEED_INTERNAL_REPOSITORY_PATH
+        value: /var/data/supplier-repository.json
+      - key: SUPPLIER_SEED_INTERNAL_STATE_PATH
+        value: /var/data/internal-state.json
+      - key: SUPPLIER_SEED_INTERNAL_DURABLE_STORAGE_ATTESTED
+        value: "true"
+      - key: SUPPLIER_SEED_INTERNAL_DEPLOYMENT_CERTIFIED
+        value: "false"
