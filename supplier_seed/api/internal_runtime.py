@@ -7,8 +7,8 @@ from supplier_seed import JsonFileSupplierRepository, SupplierSeedEngine
 from supplier_seed.api.internal_app import (
     InMemoryInternalMutationStateStore,
     InternalSupplierApiSettings,
-    create_internal_app,
 )
+from supplier_seed.api.internal_review_app import create_internal_review_app
 from supplier_seed.api.internal_state import JsonFileInternalMutationStateStore
 
 
@@ -36,11 +36,12 @@ def _absolute_env_path(name: str) -> Path | None:
 
 
 def create_internal_runtime_app_from_env():
-    """Build the deployable R3-S2 internal application.
+    """Build the deployable certified internal Supplier Seed application.
 
-    R3-S2 supplies restart-safe nonce/idempotency state, but LIVE creation
-    remains fail-closed until a later deployment phase explicitly certifies
-    the persistent storage mount and sets ``DEPLOYMENT_CERTIFIED_ENV``.
+    The runtime keeps the R3-S2 durable repository and mutation-state
+    requirements while adding the R3-P5 server-only review routes. All
+    mutation surfaces remain fail-closed unless the certified internal service
+    configuration and persistent storage are ready.
     """
 
     settings = InternalSupplierApiSettings.from_env()
@@ -48,7 +49,7 @@ def create_internal_runtime_app_from_env():
     deployment_certified = _env_flag(DEPLOYMENT_CERTIFIED_ENV, False)
 
     if not settings.enabled:
-        return create_internal_app(settings=settings)
+        return create_internal_review_app(settings=settings)
 
     try:
         repository_path = _absolute_env_path(REPOSITORY_PATH_ENV)
@@ -65,16 +66,16 @@ def create_internal_runtime_app_from_env():
             durability_attested=durability_attested,
             deployment_certified=deployment_certified,
         )
-        return create_internal_app(
+        return create_internal_review_app(
             engine,
             settings=settings,
             state_store=state_store,
         )
     except (OSError, ValueError):
         # Fail closed. Preserve the HMAC configuration so authenticated
-        # capability checks can see that creation is unavailable, while
-        # preventing writes against partially initialized persistence.
-        return create_internal_app(
+        # checks can see the service while preventing writes against partially
+        # initialized persistence.
+        return create_internal_review_app(
             settings=settings,
             state_store=InMemoryInternalMutationStateStore(),
         )
